@@ -1,0 +1,24 @@
+[Unit]
+Description=TeamClaw server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/teamclaw/current/server
+StandardOutput=append:/var/log/teamclaw.log
+StandardError=append:/var/log/teamclaw.log
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=TEAMCLAW_DEPLOYMENT_MODE=authenticated
+Environment=TEAMCLAW_DEPLOYMENT_EXPOSURE=private
+Environment=TEAMCLAW_AUTH_BASE_URL_MODE=auto
+Environment=TEAMCLAW_MIGRATION_PROMPT=never
+Environment=TEAMCLAW_AGENT_JWT_SECRET=teamclaw-dev-secret
+ExecStartPre=/usr/bin/env bash -lc 'cd /opt/teamclaw/current/server && node node_modules/@teamclawai/db/dist/migrate.js'
+ExecStart=/usr/bin/env bash -lc 'cd /opt/teamclaw/current/server && node dist/index.js'
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

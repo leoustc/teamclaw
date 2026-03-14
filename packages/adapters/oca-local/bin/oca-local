@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="0.1.0"
+CLINE_GLOBAL_STATE_PATH="${HOME}/.cline/data/globalState.json"
+CLINE_SECRETS_PATH="${HOME}/.cline/data/secrets.json"
+CLINE_COMMAND="${TEAMCLAW_CLINE_COMMAND:-cline}"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  oca-local --version
+  oca-local list-models
+  oca-local prompt --cwd <dir> [--model <id>] [--reasoning-effort <level>] [--extra-arg <arg>]... -- <prompt>
+EOF
+}
+
+known_models() {
+  cat <<'EOF'
+oca/gpt-4.1
+oca/gpt-5-codex
+oca/gpt-5.1
+oca/gpt-5.1-codex
+oca/gpt-5.1-codex-max
+oca/gpt-5.1-codex-mini
+oca/gpt-5.2
+oca/gpt-5.2-codex
+oca/gpt-5.3-codex
+oca/gpt-5.4
+oca/gpt-5.4-pro
+oca/gpt-oss-120b
+oca/gpt5
+oca/gpt5-mini
+oca/grok-code-fast-1
+oca/grok3
+oca/grok4
+oca/grok4-fast-reasoning
+oca/llama4
+oca/openai-o3
+EOF
+}
+
+configured_models() {
+  [[ -f "${CLINE_GLOBAL_STATE_PATH}" ]] || return 0
+  jq -r '
+    to_entries
+    | map(select(.value | type == "string"))
+    | map(select(.key | test("(ModelId|ModelName)$")))
+    | sort_by(
+        if (.key | startswith("actMode")) then 0
+        elif (.key | startswith("planMode")) then 1
+        else 2
+        end,
+        .key
+      )
+    | map(.value | gsub("^\\s+|\\s+$"; ""))
+    | map(select(test("^[A-Za-z0-9][A-Za-z0-9._/-]*$")))
+    | unique
+    | .[]
+  ' "${CLINE_GLOBAL_STATE_PATH}"
+}
+
+list_models() {
+  if [[ -f "${CLINE_GLOBAL_STATE_PATH}" && -f "${CLINE_SECRETS_PATH}" ]] && command -v node >/dev/null 2>&1; then
+    if live_models="$(CLINE_GLOBAL_STATE_PATH="${CLINE_GLOBAL_STATE_PATH}" CLINE_SECRETS_PATH="${CLINE_SECRETS_PATH}" node --input-type=module <<'EOF'
+import fs from "node:fs";
+
+const globalStatePath = process.env.CLINE_GLOBAL_STATE_PATH;
+const secretsPath = process.env.CLINE_SECRETS_PATH;
+
+if (!globalStatePath || !secretsPath) {
+  process.exit(1);
+}
+
+const globalState = JSON.parse(fs.readFileSync(globalStatePath, "utf8"));
+const secrets = JSON.parse(fs.readFileSync(secretsPath, "utf8"));
+
+const token = typeof secrets.ocaApiKey === "string" ? secrets.ocaApiKey.trim() : "";
+if (!token) {
+  process.exit(1);
+}
+
+const mode = globalState.ocaMode === "external" ? "external" : "internal";
+const defaultBaseUrl =
+  mode === "external"
+    ? "https://code.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm"
+    : "https://code-internal.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm";
+const configuredBaseUrl =
+  typeof globalState.ocaBaseUrl === "string" ? globalState.ocaBaseUrl.trim() : "";
+const baseUrl = (configuredBaseUrl || defaultBaseUrl).replace(/\/$/, "");
+const url = `${baseUrl}/v1/model/info`;
+
+async function fetchCatalog(headers) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      accept: "application/json",
+      ...headers,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
+function collectModelIds(payload) {
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.data)) {
+    return [];
+  }
+
+  const ids = [];
+  for (const entry of payload.data) {
+    if (!entry || typeof entry !== "object") continue;
+    const litellmParams =
+      "litellm_params" in entry && entry.litellm_params && typeof entry.litellm_params === "object"
+        ? entry.litellm_params
+        : null;
+    const id =
+      litellmParams && typeof litellmParams.model === "string"
+        ? litellmParams.model.trim()
+        : typeof entry.model_name === "string"
+          ? entry.model_name.trim()
+          : "";
+    if (id) ids.push(id);
+  }
+  return [...new Set(ids)].sort((left, right) => left.localeCompare(right));
+}
+
+let payload;
+try {
+  payload = await fetchCatalog({ Authorization: `Bearer ${token}` });
+} catch {
+  payload = await fetchCatalog({ "x-litellm-api-key": token });
+}
+
+for (const id of collectModelIds(payload)) {
+  console.log(id);
+}
+EOF
+    )"; then
+      live_model_count="$(printf '%s\n' "${live_models}" | sed '/^\s*$/d' | wc -l | tr -d ' ')"
+      if [[ "${live_model_count}" != "0" && "${live_model_count}" != "1" ]]; then
+        printf '%s\n' "${live_models}"
+        return
+      fi
+    fi
+  fi
+
+  {
+    configured_models
+    known_models
+  } | awk 'NF && !seen[$0]++'
+}
+
+run_prompt() {
+  local cwd=""
+  local model=""
+  local reasoning_effort=""
+  local prompt=""
+  local -a extra_args=()
+  local -a cline_args=()
+
+  while (($# > 0)); do
+    case "$1" in
+      --cwd)
+        [[ $# -ge 2 ]] || { echo "Missing value for --cwd" >&2; exit 1; }
+        cwd="$2"
+        shift 2
+        ;;
+      --model)
+        [[ $# -ge 2 ]] || { echo "Missing value for --model" >&2; exit 1; }
+        model="$2"
+        shift 2
+        ;;
+      --reasoning-effort)
+        [[ $# -ge 2 ]] || { echo "Missing value for --reasoning-effort" >&2; exit 1; }
+        reasoning_effort="$2"
+        shift 2
+        ;;
+      --extra-arg)
+        [[ $# -ge 2 ]] || { echo "Missing value for --extra-arg" >&2; exit 1; }
+        extra_args+=("$2")
+        shift 2
+        ;;
+      --)
+        shift
+        prompt="$*"
+        break
+        ;;
+      *)
+        echo "Unknown prompt argument: $1" >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  [[ -n "${cwd}" ]] || { echo "Missing required --cwd" >&2; exit 1; }
+  [[ -n "${prompt}" ]] || { echo "Missing prompt text after --" >&2; exit 1; }
+
+  cline_args=(task --json -c "${cwd}")
+  if [[ -n "${model}" ]]; then
+    cline_args+=(-m "${model}")
+  fi
+  if [[ -n "${reasoning_effort}" ]]; then
+    cline_args+=(--reasoning-effort "${reasoning_effort}")
+  fi
+  if ((${#extra_args[@]} > 0)); then
+    cline_args+=("${extra_args[@]}")
+  fi
+  cline_args+=("${prompt}")
+
+  exec "${CLINE_COMMAND}" "${cline_args[@]}"
+}
+
+command="${1:-}"
+if [[ -z "${command}" ]]; then
+  usage
+  exit 1
+fi
+shift || true
+
+case "${command}" in
+  --version|version)
+    echo "oca-local ${VERSION}"
+    ;;
+  list-models|--list-models)
+    list_models
+    ;;
+  prompt)
+    run_prompt "$@"
+    ;;
+  help|--help|-h)
+    usage
+    ;;
+  *)
+    echo "Unknown command: ${command}" >&2
+    usage
+    exit 1
+    ;;
+esac

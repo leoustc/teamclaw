@@ -1,0 +1,13 @@
+{
+  "name": "@teamclawai/adapter-cline-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cline-local": "./bin/cline-local"
+  },
+  "scripts": {
+    "build": "echo 'cline-local has no build step'",
+    "typecheck": "echo 'cline-local has no typecheck step'"
+  }
+}
