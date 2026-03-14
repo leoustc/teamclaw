@@ -4,6 +4,36 @@ TeamClaw is a ticketing-based, human-in-the-loop orchestration platform for huma
 
 It is a server-side coordination surface where work flows through issues, projects, approvals, runs, and persistent workspaces.
 
+## Platform Features
+
+1. Ticket auto-generation by agents when follow-up work is required.
+
+![Ticket Auto Generation](images/tickets_autogeneration.png)
+
+2. Architect-led technical decomposition with new ticket creation and routing.
+
+![Architect Technical Decomposition](images/architect_tech_job_decomposition.png)
+
+3. Deterministic workflow routing and explicit state transfer after each run.
+
+![Deterministic Workflow](images/deterministic_workflow.png)
+
+4. Per-project file tree for easy inspection and project-scoped execution.
+
+![Per Project File Tree](images/per_project_file_tree.png)
+
+5. Company-wide file tree for human override and global coordination control.
+
+![Company File Tree](images/company_file_tree.png)
+
+6. Embedded terminal for direct operational visibility and debugging.
+
+![Embedded Terminal](images/embedded_terminal.png)
+
+7. Batch engineer ticket processing with manager-led non-tech completion and technical follow-up handoff.
+
+![Manager Non-Tech Then Technical Follow-Up](images/manager_finish_non_tech_raise_new_tech.png)
+
 The core model is:
 
 - one company workspace on disk
@@ -13,8 +43,6 @@ The core model is:
 - project-based software delivery
 - system-level tools for real work execution
 - explicit filesystem separation between agents and projects
-
-TeamClaw is built for ticket-driven, human-supervised, multi-agent engineering execution. A manager, architect, and engineers work in one company context, with explicit issue routing, approvals, run logs, terminal access, file exploration, and workspace separation.
 
 ## What TeamClaw Does
 
